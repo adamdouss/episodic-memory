@@ -1,5 +1,5 @@
 """
-Layers to construct the VSLNet model.
+Layers to construct the VSLBase model.
 """
 import math
 
@@ -26,7 +26,6 @@ class Conv1D(nn.Module):
         )
 
     def forward(self, x):
-        # suppose all the input with shape (batch_size, seq_len, dim)
         x = x.transpose(1, 2)  # (batch_size, dim, seq_len)
         x = self.conv1d(x)
         return x.transpose(1, 2)  # (batch_size, seq_len, dim)
@@ -432,33 +431,6 @@ class CQConcatenate(nn.Module):
         return output
 
 
-class HighLightLayer(nn.Module):
-    def __init__(self, dim):
-        super(HighLightLayer, self).__init__()
-        self.conv1d = Conv1D(
-            in_dim=dim, out_dim=1, kernel_size=1, stride=1, padding=0, bias=True
-        )
-
-    def forward(self, x, mask):
-        # compute logits
-        logits = self.conv1d(x)
-        logits = logits.squeeze(2)
-        logits = mask_logits(logits, mask)
-        # compute score
-        scores = nn.Sigmoid()(logits)
-        return scores
-
-    @staticmethod
-    def compute_loss(scores, labels, mask, epsilon=1e-12):
-        labels = labels.type(torch.float32)
-        weights = torch.where(labels == 0.0, labels + 1.0, 2.0 * labels)
-        loss_per_location = nn.BCELoss(reduction="none")(scores, labels)
-        loss_per_location = loss_per_location * weights
-        mask = mask.type(torch.float32)
-        loss = torch.sum(loss_per_location * mask) / (torch.sum(mask) + epsilon)
-        return loss
-
-
 class DynamicRNN(nn.Module):
     def __init__(self, dim):
         super(DynamicRNN, self).__init__()
@@ -519,7 +491,7 @@ class ConditionedPredictor(nn.Module):
                 kernel_size=1,
                 stride=1,
                 padding=0,
-                bias=True,
+                bias=True
             ),
             nn.ReLU(),
             Conv1D(
@@ -550,10 +522,6 @@ class ConditionedPredictor(nn.Module):
         end_prob = nn.Softmax(dim=1)(end_logits)
         outer = torch.matmul(start_prob.unsqueeze(dim=2), end_prob.unsqueeze(dim=1))
         outer = torch.triu(outer, diagonal=0)
-
-        # _, start_index = torch.max(torch.max(outer, dim=2)[0], dim=1)  # (batch_size, )
-        # _, end_index = torch.max(torch.max(outer, dim=1)[0], dim=1)  # (batch_size, )
-        # return start_index, end_index
 
         # Get top 5 start and end indices.
         batch_size, height, width = outer.shape
